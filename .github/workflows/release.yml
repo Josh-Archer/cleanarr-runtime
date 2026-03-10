@@ -11,6 +11,9 @@ permissions:
 
 jobs:
   runner:
+    permissions:
+      actions: read
+      contents: read
     uses: ./.github/workflows/runner-selector.yml
 
   publish:
