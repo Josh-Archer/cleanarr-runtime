@@ -7,6 +7,10 @@ on:
         description: Runner label for this repository.
         value: ${{ jobs.select-runner.outputs.runner-label }}
 
+permissions:
+  actions: read
+  contents: read
+
 jobs:
   select-runner:
     runs-on: ubuntu-latest
@@ -26,11 +30,18 @@ jobs:
             exit 0
           fi
 
-          runners_json="$(curl -fsSL \
+          if ! runners_json="$(curl -fsSL \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runners")"
-          online_runner_count="$(printf '%s' "${runners_json}" | jq '[.runners[] | select(.status == "online")] | length')"
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runners")"; then
+            echo "runner-label=ubuntu-latest" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! online_runner_count="$(printf '%s' "${runners_json}" | jq '[.runners[] | select(.status == "online")] | length')"; then
+            echo "runner-label=ubuntu-latest" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
           if [ "${online_runner_count}" -gt 0 ]; then
             echo "runner-label=home-gh-runner" >> "$GITHUB_OUTPUT"
