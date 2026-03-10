@@ -1,6 +1,6 @@
 import os
 
-from cleanarr_runtime.webhook_app import APP, _start_background_threads
+from cleanarr.webhook_app import APP, _start_background_threads
 
 
 def main() -> None:

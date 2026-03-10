@@ -19,7 +19,7 @@ repo_root = os.path.dirname(current_dir)
 if repo_root not in sys.path:
     sys.path.append(repo_root)
 
-from cleanarr_runtime import cleanup as cleanarr
+from cleanarr import cleanup as cleanarr
 
 class TestCleanarrFeature(unittest.TestCase):
     def setUp(self):
@@ -32,8 +32,8 @@ class TestCleanarrFeature(unittest.TestCase):
         # Mock global logger
         cleanarr.logger = MagicMock()
 
-    @patch("cleanarr_runtime.cleanup.TransmissionClient")
-    @patch("cleanarr_runtime.cleanup.PlexServer")
+    @patch("cleanarr.cleanup.TransmissionClient")
+    @patch("cleanarr.cleanup.PlexServer")
     def test_clean_failed_downloads(self, MockPlex, MockTransmission):
         # Setup MediaCleanup instance with mocked Transmission
         cleaner = cleanarr.MediaCleanup()

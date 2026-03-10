@@ -12,13 +12,13 @@ spec:
           restartPolicy: Never
           containers:
           - name: cleanarr-job
-            image: ghcr.io/example/cleanarr-runtime-job:v0.1.0
+            image: ghcr.io/example/cleanarr-job:v0.2.0
             imagePullPolicy: IfNotPresent
             envFrom:
             - secretRef:
-                name: cleanarr-runtime-secrets
+                name: cleanarr-secrets
             - configMapRef:
-                name: cleanarr-runtime-config
+                name: cleanarr-config
             volumeMounts:
             - name: logs
               mountPath: /logs

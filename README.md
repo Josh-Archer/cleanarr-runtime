@@ -1,6 +1,6 @@
-# Cleanarr Runtime
+# Cleanarr
 
-`cleanarr-runtime` packages the reusable runtime for media cleanup automation:
+`cleanarr` packages the reusable runtime for media cleanup automation:
 
 - `job`: scheduled cleanup against Plex, Sonarr, Radarr, and Transmission
 - `webhook`: Plex webhook receiver with optional event-driven deletion handling
@@ -9,8 +9,8 @@ This repository is intended to be public-safe. Cluster-specific manifests, secre
 
 ## Images
 
-- `ghcr.io/<owner>/cleanarr-runtime-job`
-- `ghcr.io/<owner>/cleanarr-runtime-webhook`
+- `ghcr.io/<owner>/cleanarr-job`
+- `ghcr.io/<owner>/cleanarr-webhook`
 
 Stable releases use semver tags such as `v0.1.0`. Release publishing should happen from semver tags after the documented review gates are approved.
 Public pull requests stay on GitHub-hosted runners. Pushes and releases can opt into self-hosted runners by setting `USE_SELF_HOSTED=true` and `SELF_HOSTED_RUNNER_LABEL=<label>`.

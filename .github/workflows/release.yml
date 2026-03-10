@@ -32,9 +32,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - image_name: cleanarr-runtime-job
+          - image_name: cleanarr-job
             dockerfile: apps/job/Dockerfile
-          - image_name: cleanarr-runtime-webhook
+          - image_name: cleanarr-webhook
             dockerfile: apps/webhook/Dockerfile
     steps:
       - uses: actions/checkout@v6

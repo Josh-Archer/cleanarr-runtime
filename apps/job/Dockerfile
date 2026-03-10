@@ -1,6 +1,6 @@
 FROM python:3.14-slim
 
-LABEL org.opencontainers.image.source="https://github.com/example/cleanarr-runtime"
+LABEL org.opencontainers.image.source="https://github.com/Josh-Archer/cleanarr"
 
 WORKDIR /app
 
@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml README.md ./
-COPY cleanarr_runtime ./cleanarr_runtime
+COPY cleanarr ./cleanarr
 COPY apps/job ./apps/job
 
 RUN pip install --no-cache-dir .

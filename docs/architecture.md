@@ -2,7 +2,7 @@
 
 The public runtime repository is intentionally split into three layers:
 
-- `cleanarr_runtime/`: shared library code used by both runtime harnesses
+- `cleanarr/`: shared library code used by both runtime harnesses
 - `apps/job/`: thin cron/job entrypoint around `MediaCleanup`
 - `apps/webhook/`: thin Flask entrypoint around the shared webhook app
 

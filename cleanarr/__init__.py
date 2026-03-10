@@ -6,7 +6,7 @@ from . import cleanup
 from .cleanup import CONFIG, MediaCleanup
 
 try:
-    __version__ = version("cleanarr-runtime")
+    __version__ = version("cleanarr")
 except PackageNotFoundError:
     __version__ = "0.0.0"
 

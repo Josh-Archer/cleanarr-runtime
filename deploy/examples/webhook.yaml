@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: cleanarr-webhook
-        image: ghcr.io/example/cleanarr-runtime-webhook:v0.1.0
+        image: ghcr.io/example/cleanarr-webhook:v0.2.0
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8000
@@ -26,9 +26,9 @@ spec:
           value: "/plex/webhook"
         envFrom:
         - secretRef:
-            name: cleanarr-runtime-secrets
+            name: cleanarr-secrets
         - configMapRef:
-            name: cleanarr-runtime-config
+            name: cleanarr-config
         volumeMounts:
         - name: logs
           mountPath: /logs

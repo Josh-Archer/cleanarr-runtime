@@ -12,7 +12,7 @@ if repo_root not in sys.path:
 # Set env var for log file to avoid permission error
 os.environ['CLEANARR_LOG_FILE'] = os.path.join(tempfile.gettempdir(), 'cleanarr_test.log')
 
-from cleanarr_runtime import cleanup as cleanarr
+from cleanarr import cleanup as cleanarr
 
 class TestMediaCleanup(unittest.TestCase):
 
@@ -40,13 +40,13 @@ class TestMediaCleanup(unittest.TestCase):
         self.config_patcher.start()
 
         # Mock external libraries
-        self.plex_patcher = patch('cleanarr_runtime.cleanup.PlexServer')
+        self.plex_patcher = patch('cleanarr.cleanup.PlexServer')
         self.MockPlex = self.plex_patcher.start()
 
-        self.trans_patcher = patch('cleanarr_runtime.cleanup.TransmissionClient')
+        self.trans_patcher = patch('cleanarr.cleanup.TransmissionClient')
         self.MockTransmission = self.trans_patcher.start()
 
-        self.requests_patcher = patch('cleanarr_runtime.cleanup.requests')
+        self.requests_patcher = patch('cleanarr.cleanup.requests')
         self.MockRequests = self.requests_patcher.start()
         
         # Mock Session and its methods

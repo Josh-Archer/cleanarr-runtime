@@ -3,13 +3,13 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "cleanarr-runtime"
-version = "0.1.0"
+name = "cleanarr"
+version = "0.2.0"
 description = "Reusable Plex/Sonarr/Radarr cleanup runtime with cronjob and webhook harnesses."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "Cleanarr Runtime Contributors" }]
+authors = [{ name = "Cleanarr Contributors" }]
 dependencies = [
   "flask>=3.0",
   "loguru>=0.7",

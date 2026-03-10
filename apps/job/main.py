@@ -1,4 +1,4 @@
-from cleanarr_runtime.cleanup import MediaCleanup
+from cleanarr.cleanup import MediaCleanup
 
 
 def main() -> None:

@@ -258,7 +258,7 @@ def _get_media_cleanup():
         if _MC is not None:
             return _MC
         try:
-            from cleanarr_runtime.cleanup import MediaCleanup
+            from cleanarr.cleanup import MediaCleanup
             _MC = MediaCleanup()
             if hasattr(_MC.plex, "_session"):
                 _MC.plex._session.verify = False
@@ -301,7 +301,7 @@ def _health_monitor():
 
                     # Auth checks for Sonarr/Radarr/Transmission; send ntfy on 401
                     try:
-                        from cleanarr_runtime import cleanup as _carr
+                        from cleanarr import cleanup as _carr
                         base_r = _carr.CONFIG.get('radarr', {}).get('baseurl')
                         key_r = _carr.CONFIG.get('radarr', {}).get('apikey')
                         base_s = _carr.CONFIG.get('sonarr', {}).get('baseurl')

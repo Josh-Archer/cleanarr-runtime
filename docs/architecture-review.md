@@ -2,9 +2,9 @@
 
 Review before first public release:
 
-- Shared cleanup logic lives in `cleanarr_runtime/`.
+- Shared cleanup logic lives in `cleanarr/`.
 - `apps/job` and `apps/webhook` are harnesses only.
-- The public Python API lives in `cleanarr_runtime/` only; there is no parallel legacy shim surface.
+- The public Python API lives in `cleanarr/` only; there is no parallel legacy shim surface.
 - No cluster-specific manifests or infra automation live in this repo.
 - Public interfaces are documented: env vars, image names, entrypoints.
 - Downstream integration uses images, not source-copy or ConfigMap overrides.
