@@ -9,10 +9,10 @@ This repository is intended to be public-safe. Cluster-specific manifests, secre
 
 ## Images
 
-- `ghcr.io/<owner>/cleanarr-job`
-- `ghcr.io/<owner>/cleanarr-webhook`
+- `ghcr.io/<owner>/cleanarr-cronjob`
+- `ghcr.io/<owner>/cleanarr-webhook-app`
 
-Stable releases use semver tags such as `v0.1.0`. Release publishing should happen from semver tags after the documented review gates are approved.
+Stable releases use semver tags such as `v0.2.1`. Release publishing should happen from semver tags after the documented review gates are approved.
 Public pull requests stay on GitHub-hosted runners. Pushes and releases can opt into self-hosted runners by setting `USE_SELF_HOSTED=true` and `SELF_HOSTED_RUNNER_LABEL=<label>`.
 
 ## Quick Start

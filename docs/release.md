@@ -12,4 +12,9 @@
 7. Verify the published images exist in GHCR and the workflow completed successfully.
 8. Only then update downstream manifests to the exact semver tag or digest.
 
+Current image names:
+
+- `ghcr.io/<owner>/cleanarr-cronjob`
+- `ghcr.io/<owner>/cleanarr-webhook-app`
+
 Do not consume `latest` in downstream clusters.

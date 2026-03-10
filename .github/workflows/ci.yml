@@ -48,9 +48,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - image: cleanarr-job
+          - image: cleanarr-cronjob
             file: apps/job/Dockerfile
-          - image: cleanarr-webhook
+          - image: cleanarr-webhook-app
             file: apps/webhook/Dockerfile
     steps:
       - uses: actions/checkout@v6
