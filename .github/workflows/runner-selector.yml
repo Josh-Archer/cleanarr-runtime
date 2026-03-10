@@ -25,7 +25,7 @@ jobs:
           set -euo pipefail
 
           if [ "${USE_SELF_HOSTED}" = "true" ]; then
-            echo "runner-label=home-gh-runner" >> "$GITHUB_OUTPUT"
+            echo "runner-label=home-gh-runner-cleanarr-runtime" >> "$GITHUB_OUTPUT"
           else
             echo "runner-label=ubuntu-latest" >> "$GITHUB_OUTPUT"
           fi
