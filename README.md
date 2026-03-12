@@ -145,6 +145,8 @@ The full configuration contract is documented in [docs/configuration.md](./docs/
 | `CLEANARR_DRY_RUN` | `false` | Disables destructive delete operations. Start here first. |
 | `CLEANARR_DISABLE_TORRENT_CLEANUP` | `false` | Disables stale torrent and failed download cleanup. |
 | `CLEANARR_REMOVE_FAILED_DOWNLOADS` | `false` | Removes failed Transmission downloads when enabled. |
+| `CLEANARR_REMOVE_ORPHAN_INCOMPLETE_DOWNLOADS` | mirrors `CLEANARR_REMOVE_FAILED_DOWNLOADS` | Deletes orphaned entries from Transmission's incomplete directory when no active torrent still owns them. |
+| `CLEANARR_REMOVE_STALE_TORRENTS` | `true` | Removes stale torrents based on age and activity checks. |
 | `CLEANARR_STALE_TORRENT_HOURS` | `8` | Age threshold for stale torrent cleanup. |
 | `CLEANARR_TRANSMISSION_IO_ERROR_CLEANUP_ENABLED` | `false` | Enables repeated Transmission I/O error cleanup logic. |
 | `CLEANARR_TRANSMISSION_IO_ERROR_THRESHOLD` | `3` | Number of repeated I/O errors before action is taken. |

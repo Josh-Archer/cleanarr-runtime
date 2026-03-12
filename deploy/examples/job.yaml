@@ -12,7 +12,7 @@ spec:
           restartPolicy: Never
           containers:
           - name: cleanarr-job
-            image: ghcr.io/example/cleanarr-cronjob:v0.2.1
+            image: ghcr.io/example/cleanarr-cronjob:v0.2.2
             imagePullPolicy: IfNotPresent
             envFrom:
             - secretRef:

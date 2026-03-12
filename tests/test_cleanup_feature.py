@@ -26,6 +26,8 @@ class TestCleanarrFeature(unittest.TestCase):
         # Reset config
         cleanarr.CONFIG["plex"]["token"] = "dummy_token"
         cleanarr.CONFIG["remove_failed_downloads"] = True
+        cleanarr.CONFIG["remove_orphan_incomplete_downloads"] = True
+        cleanarr.CONFIG["remove_stale_torrents"] = True
         cleanarr.CONFIG["disable_torrent_cleanup"] = False
         cleanarr.CONFIG["dry_run"] = False
 
@@ -135,6 +137,71 @@ class TestCleanarrFeature(unittest.TestCase):
             self.assertNotIn(os.path.join(incomplete_dir, "OriginalFile.mkv"), removed_files)
             self.assertNotIn(os.path.join(incomplete_dir, "PartFile.mkv.part"), removed_files)
             self.assertNotIn(os.path.join(incomplete_dir, "FallbackTorrent"), removed_files)
+
+    @patch("cleanarr.cleanup.TransmissionClient")
+    @patch("cleanarr.cleanup.PlexServer")
+    def test_clean_failed_downloads_can_delete_orphans_without_removing_errored_torrents(self, MockPlex, MockTransmission):
+        cleaner = cleanarr.MediaCleanup()
+        mock_transmission = MagicMock()
+        cleaner.transmission = mock_transmission
+
+        torrent = MagicMock()
+        torrent.id = 1
+        torrent.name = "StillTracked"
+        torrent.error = 1
+        torrent.files.return_value = [{"name": "StillTracked/file.mkv"}]
+        mock_transmission.get_torrents.return_value = [torrent]
+
+        incomplete_dir = "/tmp/incomplete"
+        mock_session = MagicMock()
+        mock_session.incomplete_dir_enabled = True
+        mock_session.incomplete_dir = incomplete_dir
+        mock_transmission.get_session.return_value = mock_session
+
+        cleanarr.CONFIG["remove_failed_downloads"] = False
+        cleanarr.CONFIG["remove_orphan_incomplete_downloads"] = True
+
+        with patch("os.path.exists", return_value=True), \
+             patch("os.listdir", return_value=["StillTracked", "GoneTorrent"]), \
+             patch("os.path.isdir", side_effect=lambda path: path.endswith("GoneTorrent")), \
+             patch("os.remove") as mock_remove, \
+             patch("shutil.rmtree") as mock_rmtree:
+            cleaner.clean_failed_downloads()
+
+        mock_transmission.remove_torrent.assert_not_called()
+        mock_remove.assert_not_called()
+        mock_rmtree.assert_called_once_with(os.path.join(incomplete_dir, "GoneTorrent"))
+
+    @patch("cleanarr.cleanup.TransmissionClient")
+    @patch("cleanarr.cleanup.PlexServer")
+    def test_clean_failed_downloads_keeps_download_dir_basename_matches(self, MockPlex, MockTransmission):
+        cleaner = cleanarr.MediaCleanup()
+        mock_transmission = MagicMock()
+        cleaner.transmission = mock_transmission
+
+        torrent = MagicMock()
+        torrent.id = 1
+        torrent.name = "Series.Name.S01E01"
+        torrent.error = 0
+        torrent.download_dir = "/data/incomplete/Series Name (2026)"
+        torrent.files.return_value = [{"name": "video.mkv"}]
+        mock_transmission.get_torrents.return_value = [torrent]
+
+        incomplete_dir = "/tmp/incomplete"
+        mock_session = MagicMock()
+        mock_session.incomplete_dir_enabled = True
+        mock_session.incomplete_dir = incomplete_dir
+        mock_transmission.get_session.return_value = mock_session
+
+        with patch("os.path.exists", return_value=True), \
+             patch("os.listdir", return_value=["Series Name (2026)", "ActuallyGone"]), \
+             patch("os.path.isdir", return_value=False), \
+             patch("os.remove") as mock_remove:
+            cleaner.clean_failed_downloads()
+
+        removed_files = [call.args[0] for call in mock_remove.call_args_list]
+        self.assertIn(os.path.join(incomplete_dir, "ActuallyGone"), removed_files)
+        self.assertNotIn(os.path.join(incomplete_dir, "Series Name (2026)"), removed_files)
 
 if __name__ == "__main__":
     unittest.main()

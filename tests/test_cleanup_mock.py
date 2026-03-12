@@ -29,6 +29,8 @@ class TestMediaCleanup(unittest.TestCase):
             "debug": True,
             "dry_run": False,
             "disable_torrent_cleanup": False,
+            "remove_orphan_incomplete_downloads": True,
+            "remove_stale_torrents": True,
             "transmission_io_error_cleanup_enabled": True,
             "transmission_io_error_threshold": 2,
             "transmission_io_error_state_file": os.path.join(

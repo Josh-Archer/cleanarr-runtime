@@ -79,6 +79,11 @@ CONFIG = {
     "dry_run": _env_flag("CLEANARR_DRY_RUN", default="false"),
     "disable_torrent_cleanup": _env_flag("CLEANARR_DISABLE_TORRENT_CLEANUP", default="false"),
     "remove_failed_downloads": _env_flag("CLEANARR_REMOVE_FAILED_DOWNLOADS", default="false"),
+    "remove_orphan_incomplete_downloads": _env_flag(
+        "CLEANARR_REMOVE_ORPHAN_INCOMPLETE_DOWNLOADS",
+        default=_get_env("CLEANARR_REMOVE_FAILED_DOWNLOADS", default="false"),
+    ),
+    "remove_stale_torrents": _env_flag("CLEANARR_REMOVE_STALE_TORRENTS", default="true"),
     "transmission_io_error_cleanup_enabled": _env_flag(
         "CLEANARR_TRANSMISSION_IO_ERROR_CLEANUP_ENABLED",
         default="false",
@@ -107,6 +112,43 @@ IO_ERROR_PATTERNS = (
     re.compile(r"input/output error", re.IGNORECASE),
     re.compile(r"stale file handle", re.IGNORECASE),
 )
+
+
+def _normalize_incomplete_name(name: str) -> str:
+    name = (name or "").strip()
+    if name.endswith(".part"):
+        name = name[:-5]
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+def _iter_expected_incomplete_names(torrent):
+    names = set()
+
+    torrent_name = getattr(torrent, "name", None)
+    if torrent_name:
+        names.add(torrent_name)
+
+    for attr in ("download_dir", "downloadDir"):
+        download_dir = getattr(torrent, attr, None)
+        if download_dir:
+            names.add(Path(download_dir).name)
+
+    try:
+        torrent_files = torrent.files()
+    except Exception as e:
+        logger.warning(f"Failed to get files for torrent {torrent_name}: {e}. Falling back to torrent metadata.")
+        return names
+
+    for torrent_file in torrent_files:
+        path = torrent_file.name if hasattr(torrent_file, "name") else torrent_file.get("name")
+        if not path:
+            continue
+        path_obj = Path(path)
+        if path_obj.parts:
+            names.add(path_obj.parts[0])
+        names.add(path_obj.name)
+
+    return names
 
 # Setup logger
 logger.remove()
@@ -875,8 +917,11 @@ class MediaCleanup:
             logger.info("Torrent cleanup is disabled via CLEANARR_DISABLE_TORRENT_CLEANUP")
             return
 
-        if not CONFIG.get("remove_failed_downloads", False):
-            logger.info("Failed download cleanup is disabled")
+        remove_failed_downloads = CONFIG.get("remove_failed_downloads", False)
+        remove_orphan_incomplete_downloads = CONFIG.get("remove_orphan_incomplete_downloads", False)
+
+        if not remove_failed_downloads and not remove_orphan_incomplete_downloads:
+            logger.info("Failed download and orphan incomplete cleanup are disabled")
             return
 
         logger.info("Checking for failed downloads and orphaned incomplete files")
@@ -884,20 +929,27 @@ class MediaCleanup:
             # 1. Clean errored torrents
             torrents = self.transmission.get_torrents()
             removed_torrent_ids = set()
-            for torrent in torrents:
-                if torrent.error != 0:
-                    logger.info(f"Found errored torrent: {torrent.name} (ID: {torrent.id}, Error: {torrent.error_string})")
-                    if CONFIG["dry_run"]:
-                        logger.info(f"[DRY RUN] Would remove errored torrent: {torrent.name}")
-                    else:
-                        logger.info(f"Removing errored torrent: {torrent.name}")
-                        try:
-                            self.transmission.remove_torrent(torrent.id, delete_data=True)
-                            removed_torrent_ids.add(torrent.id)
-                        except Exception as e:
-                            logger.error(f"Failed to remove errored torrent {torrent.name}: {e}")
+            if remove_failed_downloads:
+                for torrent in torrents:
+                    if torrent.error != 0:
+                        logger.info(f"Found errored torrent: {torrent.name} (ID: {torrent.id}, Error: {torrent.error_string})")
+                        if CONFIG["dry_run"]:
+                            logger.info(f"[DRY RUN] Would remove errored torrent: {torrent.name}")
+                        else:
+                            logger.info(f"Removing errored torrent: {torrent.name}")
+                            try:
+                                self.transmission.remove_torrent(torrent.id, delete_data=True)
+                                removed_torrent_ids.add(torrent.id)
+                            except Exception as e:
+                                logger.error(f"Failed to remove errored torrent {torrent.name}: {e}")
+            else:
+                logger.info("Failed download cleanup is disabled")
 
             # 2. Clean orphaned files in incomplete directory
+            if not remove_orphan_incomplete_downloads:
+                logger.info("Orphan incomplete cleanup is disabled")
+                return
+
             session = self.transmission.get_session()
             if not session.incomplete_dir_enabled:
                 logger.info("Incomplete download directory is disabled in Transmission, skipping orphan cleanup")
@@ -912,37 +964,13 @@ class MediaCleanup:
             active_torrents = [t for t in torrents if t.id not in removed_torrent_ids]
 
             # Build a set of expected file/directory names in the incomplete directory
-            # For each active torrent, if it is incomplete, its data should be in incomplete_dir.
-            # We assume top-level name corresponds to file/dir name.
             expected_names = set()
             for torrent in active_torrents:
-                try:
-                    # Use files() to get actual on-disk paths
-                    for tf in torrent.files():
-                        # transmission-rpc returns a File object or dict with 'name'
-                        # which is the full path relative to download dir.
-                        # We only care about the top-level component.
-                        path = tf.name if hasattr(tf, 'name') else tf.get('name')
-                        if path:
-                            # Split path and take the first component
-                            parts = Path(path).parts
-                            if parts:
-                                expected_names.add(parts[0])
-                except Exception as e:
-                    logger.warning(f"Failed to get files for torrent {torrent.name}: {e}. Fallback to torrent name.")
-                    expected_names.add(torrent.name)
+                expected_names.update(_iter_expected_incomplete_names(torrent))
 
             logger.debug(f"Expected files in incomplete dir (from active torrents): {expected_names}")
 
-            # Helper to normalize names for loose matching (handling sanitization and .part suffix)
-            def normalize_name(name):
-                # Remove .part suffix if present
-                if name.endswith(".part"):
-                    name = name[:-5]
-                # Remove non-alphanumeric characters for loose matching
-                return re.sub(r"[^a-z0-9]", "", name.lower())
-
-            expected_normalized = {normalize_name(name) for name in expected_names}
+            expected_normalized = {_normalize_incomplete_name(name) for name in expected_names}
 
             # List actual files/directories in incomplete_dir
             try:
@@ -962,7 +990,7 @@ class MediaCleanup:
                     is_orphan = False
 
                 # 2. Check normalized match (handles .part and sanitization)
-                elif normalize_name(filename) in expected_normalized:
+                elif _normalize_incomplete_name(filename) in expected_normalized:
                     is_orphan = False
 
                 if is_orphan:
@@ -989,11 +1017,14 @@ class MediaCleanup:
         if CONFIG.get("disable_torrent_cleanup", False) or not self.transmission:
             logger.info("Torrent cleanup is disabled via CLEANARR_DISABLE_TORRENT_CLEANUP")
             return
+        if not CONFIG.get("remove_stale_torrents", True):
+            logger.info("Stale torrent cleanup is disabled")
+            return
         logger.info("Checking Transmission for stale torrents")
         try:
             torrents = self.transmission.get_torrents()
             current_time = datetime.now(timezone.utc)  # Use UTC for consistency
-            stale_threshold = timedelta(hours=8)
+            stale_threshold = timedelta(hours=CONFIG.get("stale_torrent_hours", 8))
 
             for torrent in torrents:
                 try:
