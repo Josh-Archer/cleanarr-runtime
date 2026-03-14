@@ -72,6 +72,9 @@ CONFIG = {
         "port": int(_get_env("CLEANARR_TRANSMISSION_PORT", default="9091")),
         "username": _get_env("CLEANARR_TRANSMISSION_USERNAME"),
         "password": _get_env("CLEANARR_TRANSMISSION_PASSWORD"),
+        "rpc_timeout_seconds": int(
+            _get_env("CLEANARR_TRANSMISSION_RPC_TIMEOUT_SECONDS", default="90")
+        ),
     },
     "log_file": _get_env("CLEANARR_LOG_FILE", default="/logs/plex-cleanup.log"),
     "debug": _env_flag("CLEANARR_DEBUG", default="true"),
@@ -224,8 +227,12 @@ class MediaCleanup:
                     port=CONFIG["transmission"]["port"],
                     username=CONFIG["transmission"]["username"],
                     password=CONFIG["transmission"]["password"],
+                    timeout=CONFIG["transmission"]["rpc_timeout_seconds"],
                 )
-                logger.info("Connected to Transmission client")
+                logger.info(
+                    "Connected to Transmission client "
+                    f"(timeout={CONFIG['transmission']['rpc_timeout_seconds']}s)"
+                )
             except Exception as e:
                 logger.error(f"Failed to connect to Transmission: {str(e)}")
                 sys.exit(1)

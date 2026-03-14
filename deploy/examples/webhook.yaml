@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: cleanarr-webhook
-        image: ghcr.io/example/cleanarr-webhook-app:v0.2.2
+        image: ghcr.io/example/cleanarr-webhook-app:v0.2.3
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8000

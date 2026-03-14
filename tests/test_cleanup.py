@@ -26,7 +26,8 @@ class TestMediaCleanup(unittest.TestCase):
                 "host": "mock-transmission",
                 "port": 9091,
                 "username": "user",
-                "password": "pass"
+                "password": "pass",
+                "rpc_timeout_seconds": 90,
             },
             "debug": True,
             "dry_run": False,
@@ -57,6 +58,13 @@ class TestMediaCleanup(unittest.TestCase):
 
         # Instantiate MediaCleanup
         self.cleanup = cleanarr.MediaCleanup()
+        self.MockTransmission.assert_called_with(
+            host="mock-transmission",
+            port=9091,
+            username="user",
+            password="pass",
+            timeout=90,
+        )
 
     def tearDown(self):
         self.config_patcher.stop()

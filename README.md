@@ -162,6 +162,7 @@ Transmission is optional unless you want torrent maintenance or torrent removal 
 | `CLEANARR_TRANSMISSION_PORT` | No | Transmission RPC port |
 | `CLEANARR_TRANSMISSION_USERNAME` | No | Transmission RPC username |
 | `CLEANARR_TRANSMISSION_PASSWORD` | No | Transmission RPC password |
+| `CLEANARR_TRANSMISSION_RPC_TIMEOUT_SECONDS` | No | Transmission RPC timeout in seconds. Defaults to `90`. |
 
 ### Webhook Flags
 
