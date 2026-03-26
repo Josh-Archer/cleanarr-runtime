@@ -36,6 +36,8 @@ jobs:
             dockerfile: apps/job/Dockerfile
           - image_name: cleanarr-webhook-app
             dockerfile: apps/webhook/Dockerfile
+          - image_name: cleanarr-lambda
+            dockerfile: apps/lambda/Dockerfile
     steps:
       - uses: actions/checkout@v6
         with:
