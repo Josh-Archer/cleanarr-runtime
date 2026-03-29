@@ -1,0 +1,27 @@
+FROM mirror.gcr.io/library/python:3.11-slim
+
+LABEL org.opencontainers.image.source="https://github.com/Josh-Archer/cleanarr"
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libffi-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml README.md ./
+COPY cleanarr ./cleanarr
+COPY apps/job ./apps/job
+
+RUN pip install --no-cache-dir .
+
+# Lambda Runtime expects a handler.
+# We will use AWS Lambda Web Adapter OR direct execution. 
+# For a raw cron job, we use aws-lambda-ric (runtime interface client)
+# Let's install the RIC to make it standard Lambda compatible
+RUN pip install awslambdaric
+RUN mkdir -p /logs
+
+# The entrypoint for Lambda with custom container
+ENTRYPOINT [ "/usr/local/bin/python", "-m", "awslambdaric" ]
+CMD [ "apps.job.lambda_handler.lambda_handler" ]

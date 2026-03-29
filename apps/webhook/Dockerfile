@@ -2,6 +2,8 @@ FROM mirror.gcr.io/library/python:3.11-slim
 
 LABEL org.opencontainers.image.source="https://github.com/Josh-Archer/cleanarr"
 
+COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:0.9.0 /opt/extensions/ /opt/extensions/
+
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -19,3 +21,4 @@ RUN pip install --no-cache-dir .
 RUN mkdir -p /logs
 
 CMD ["python", "apps/webhook/main.py"]
+
