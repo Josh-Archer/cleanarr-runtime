@@ -60,7 +60,7 @@ if LOKI_URL:
         logging.exception("Failed to initialize Loki logging")
 
 # Where to store incoming webhook events (one JSON object per line)
-EVENTS_FILE = os.path.join("/logs", "plex_events.json")
+EVENTS_FILE = os.environ.get("CLEANARR_EVENTS_FILE", os.path.join("/logs", "plex_events.json"))
 
 # Lazy MediaCleanup instance (created on first event processing)
 _MC = None
@@ -1314,3 +1314,4 @@ if __name__ == '__main__':
 _start_background_threads()
 
 app = APP
+

@@ -227,7 +227,6 @@ class MediaCleanup:
             logger.info(f"Connected to Plex server: {self.plex.friendlyName}")
         except Exception as e:
             logger.error(f"Failed to connect to Plex: {str(e)}")
-            sys.exit(1)
 
         # Initialize Sonarr Session
         self.sonarr_session = requests.Session()
@@ -1407,3 +1406,4 @@ class MediaCleanup:
 if __name__ == "__main__":
     cleaner = MediaCleanup()
     cleaner.run()
+
