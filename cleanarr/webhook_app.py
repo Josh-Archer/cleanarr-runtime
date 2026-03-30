@@ -796,10 +796,10 @@ def healthz():
 def plex_webhook():
     # Verify authentication token if configured
     if WEBHOOK_SECRET:
-        token_header = request.headers.get('X-Cleanarr-Webhook-Token') or request.headers.get('X-Webhook-Token')
+        token_val = request.headers.get('X-Cleanarr-Webhook-Token') or request.headers.get('X-Webhook-Token') or request.args.get('token')
         token_ok = (
-            (token_header == WEBHOOK_SECRET)
-            or (WEBHOOK_SECRET_PREVIOUS and token_header == WEBHOOK_SECRET_PREVIOUS)
+            (token_val == WEBHOOK_SECRET)
+            or (WEBHOOK_SECRET_PREVIOUS and token_val == WEBHOOK_SECRET_PREVIOUS)
         )
         if not token_ok:
             logger.warning(f"Unauthorized webhook attempt from {request.remote_addr}")
@@ -1546,5 +1546,6 @@ if __name__ == '__main__':
 
 
 app = APP
+
 
 
