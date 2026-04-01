@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 import sys
 import os
 import tempfile
+import requests
 
 # Ensure we can import the local package
 repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -113,19 +114,57 @@ class TestMediaCleanup(unittest.TestCase):
         """Test successful Sonarr API call."""
         mock_response = MagicMock()
         mock_response.status_code = 200
+        mock_response.text = '{"data":"test"}'
         mock_response.json.return_value = {'data': 'test'}
-        self.mock_session.get.return_value = mock_response
+        self.mock_session.request.return_value = mock_response
 
         result = self.cleanup._sonarr_request('test-endpoint')
         self.assertEqual(result, {'data': 'test'})
-        self.mock_session.get.assert_called_with(
-            'http://mock-sonarr:8989/test-endpoint'
+        self.mock_session.request.assert_called_with(
+            'GET',
+            'http://mock-sonarr:8989/test-endpoint',
+            timeout=30,
         )
+
+    def test_arr_request_retries_transient_http_error(self):
+        """Transient 5xx errors should retry before failing the request."""
+        error_response = MagicMock()
+        error_response.status_code = 502
+        error_response.text = "<html>bad gateway</html>"
+        error_response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=error_response)
+
+        success_response = MagicMock()
+        success_response.status_code = 200
+        success_response.text = '{"ok":true}'
+        success_response.raise_for_status.return_value = None
+        success_response.json.return_value = {"ok": True}
+
+        self.mock_session.request.side_effect = [error_response, success_response]
+
+        with patch("cleanarr.cleanup.time.sleep") as mock_sleep:
+            result = self.cleanup._radarr_request("tag")
+
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(self.mock_session.request.call_count, 2)
+        mock_sleep.assert_called_once()
+
+    def test_arr_request_treats_empty_delete_response_as_success(self):
+        """DELETE endpoints with empty 2xx bodies should still count as success."""
+        empty_success = MagicMock()
+        empty_success.status_code = 202
+        empty_success.text = ""
+        empty_success.raise_for_status.return_value = None
+
+        self.mock_session.request.return_value = empty_success
+
+        result = self.cleanup._sonarr_request("episodefile/123", method="DELETE")
+
+        self.assertEqual(result, {})
 
     def test_match_episode_to_sonarr(self):
         """Test matching Plex episode to Sonarr episode."""
         # Mock Sonarr series list
-        self.mock_session.get.side_effect = [
+        self.mock_session.request.side_effect = [
             # First call: get series
             MagicMock(status_code=200, json=lambda: [{'title': 'Test Show', 'id': 100}]),
             # Second call: get episodes for series 100
@@ -150,8 +189,9 @@ class TestMediaCleanup(unittest.TestCase):
     def test_match_movie_to_radarr_fuzzy(self):
         """Test fuzzy matching for movies."""
         # Mock Radarr movie list
-        self.mock_session.get.return_value = MagicMock(
+        self.mock_session.request.return_value = MagicMock(
             status_code=200,
+            text='[{"title":"The Avengers","year":2012,"id":1,"movieFile":{"id":10}}]',
             json=lambda: [
                 {'title': 'The Avengers', 'year': 2012, 'id': 1, 'movieFile': {'id': 10}}
             ]
@@ -162,6 +202,45 @@ class TestMediaCleanup(unittest.TestCase):
 
         self.assertIsNotNone(match)
         self.assertEqual(match['movie']['title'], 'The Avengers')
+
+    def test_match_movie_to_radarr_token_subset_fallback(self):
+        """Longer premiere titles should still match when meaningful tokens align."""
+        self.mock_session.request.return_value = MagicMock(
+            status_code=200,
+            text="ok",
+            json=lambda: [
+                {
+                    "title": "Marvel Studios' The Fantastic Four: First Steps - World Premiere",
+                    "year": 2025,
+                    "id": 2,
+                    "movieFile": {"id": 12},
+                }
+            ],
+        )
+
+        plex_movie = {'title': 'The Fantastic Four: First Steps', 'year': 2025}
+        match = self.cleanup.match_movie_to_radarr(plex_movie)
+
+        self.assertIsNotNone(match)
+        self.assertEqual(match['movie']['id'], 2)
+
+    def test_match_movie_to_radarr_ignores_generic_single_word_candidate(self):
+        """Single-word candidates should not match unrelated long Plex titles."""
+        self.mock_session.request.return_value = MagicMock(
+            status_code=200,
+            text="ok",
+            json=lambda: [
+                {'title': 'Normal', 'year': 2026, 'id': 3, 'movieFile': {}}
+            ],
+        )
+
+        plex_movie = {
+            'title': 'Octokuro - [VirtualTaboo-VR2Normal] - [2023] - Moo Means Fuck Me In The Ass [x265]',
+            'year': 2026,
+        }
+        match = self.cleanup.match_movie_to_radarr(plex_movie)
+
+        self.assertIsNone(match)
 
     def test_get_user_tags(self):
         """Test extracting user tags from Sonarr/Radarr tags."""
@@ -177,6 +256,28 @@ class TestMediaCleanup(unittest.TestCase):
         self.assertIn('user1', user_tags)
         self.assertIn('user2', user_tags)
         self.assertNotIn('safe', user_tags)
+
+    def test_process_watched_movies_skips_matched_items_without_movie_file_id(self):
+        """Matched Radarr entries without a movie file should not attempt deletion."""
+        movie = {
+            'title': 'Example Movie',
+            'year': 2024,
+            'file': '/movies/Example Movie (2024).mkv',
+            'watched_by': {'user1': True},
+            'rating_key': '123',
+        }
+
+        with patch.object(self.cleanup, 'get_watched_movies', return_value=[movie]), \
+             patch.object(self.cleanup, 'get_radarr_tags', return_value=[]), \
+             patch.object(
+                 self.cleanup,
+                 'match_movie_to_radarr',
+                 return_value={'movie': {'id': 10, 'title': 'Example Movie', 'tags': []}, 'file_id': None},
+             ), \
+             patch.object(self.cleanup, 'delete_radarr_movie_file') as mock_delete:
+            self.cleanup.process_watched_movies()
+
+        mock_delete.assert_not_called()
 
     def test_remove_torrent_by_file_path(self):
         """Test removing torrent by file path."""
