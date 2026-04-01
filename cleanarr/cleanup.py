@@ -492,11 +492,16 @@ class MediaCleanup:
         for attempt in range(1, max_attempts + 1):
             try:
                 request_kwargs = {"timeout": 30}
-                if method in {"POST", "PUT"}:
+                if method == "GET":
+                    response = session.get(url, **request_kwargs)
+                elif method == "DELETE":
+                    response = session.delete(url, **request_kwargs)
+                elif method in {"POST", "PUT"}:
                     session.headers.update({"Content-Type": "application/json"})
                     request_kwargs["data"] = json.dumps(data)
-
-                response = session.request(method, url, **request_kwargs)
+                    response = session.request(method, url, **request_kwargs)
+                else:
+                    response = session.request(method, url, **request_kwargs)
                 if response.status_code in transient_statuses and attempt < max_attempts:
                     logger.warning(
                         f"{service_name} API transient response ({method} {endpoint}): "

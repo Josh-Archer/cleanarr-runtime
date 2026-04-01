@@ -116,15 +116,11 @@ class TestMediaCleanup(unittest.TestCase):
         mock_response.status_code = 200
         mock_response.text = '{"data":"test"}'
         mock_response.json.return_value = {'data': 'test'}
-        self.mock_session.request.return_value = mock_response
+        self.mock_session.get.return_value = mock_response
 
         result = self.cleanup._sonarr_request('test-endpoint')
         self.assertEqual(result, {'data': 'test'})
-        self.mock_session.request.assert_called_with(
-            'GET',
-            'http://mock-sonarr:8989/test-endpoint',
-            timeout=30,
-        )
+        self.mock_session.get.assert_called_with('http://mock-sonarr:8989/test-endpoint', timeout=30)
 
     def test_arr_request_retries_transient_http_error(self):
         """Transient 5xx errors should retry before failing the request."""
@@ -139,13 +135,13 @@ class TestMediaCleanup(unittest.TestCase):
         success_response.raise_for_status.return_value = None
         success_response.json.return_value = {"ok": True}
 
-        self.mock_session.request.side_effect = [error_response, success_response]
+        self.mock_session.get.side_effect = [error_response, success_response]
 
         with patch("cleanarr.cleanup.time.sleep") as mock_sleep:
             result = self.cleanup._radarr_request("tag")
 
         self.assertEqual(result, {"ok": True})
-        self.assertEqual(self.mock_session.request.call_count, 2)
+        self.assertEqual(self.mock_session.get.call_count, 2)
         mock_sleep.assert_called_once()
 
     def test_arr_request_treats_empty_delete_response_as_success(self):
@@ -155,7 +151,7 @@ class TestMediaCleanup(unittest.TestCase):
         empty_success.text = ""
         empty_success.raise_for_status.return_value = None
 
-        self.mock_session.request.return_value = empty_success
+        self.mock_session.delete.return_value = empty_success
 
         result = self.cleanup._sonarr_request("episodefile/123", method="DELETE")
 
@@ -164,7 +160,7 @@ class TestMediaCleanup(unittest.TestCase):
     def test_match_episode_to_sonarr(self):
         """Test matching Plex episode to Sonarr episode."""
         # Mock Sonarr series list
-        self.mock_session.request.side_effect = [
+        self.mock_session.get.side_effect = [
             # First call: get series
             MagicMock(status_code=200, json=lambda: [{'title': 'Test Show', 'id': 100}]),
             # Second call: get episodes for series 100
@@ -189,7 +185,7 @@ class TestMediaCleanup(unittest.TestCase):
     def test_match_movie_to_radarr_fuzzy(self):
         """Test fuzzy matching for movies."""
         # Mock Radarr movie list
-        self.mock_session.request.return_value = MagicMock(
+        self.mock_session.get.return_value = MagicMock(
             status_code=200,
             text='[{"title":"The Avengers","year":2012,"id":1,"movieFile":{"id":10}}]',
             json=lambda: [
@@ -205,7 +201,7 @@ class TestMediaCleanup(unittest.TestCase):
 
     def test_match_movie_to_radarr_token_subset_fallback(self):
         """Longer premiere titles should still match when meaningful tokens align."""
-        self.mock_session.request.return_value = MagicMock(
+        self.mock_session.get.return_value = MagicMock(
             status_code=200,
             text="ok",
             json=lambda: [
@@ -226,7 +222,7 @@ class TestMediaCleanup(unittest.TestCase):
 
     def test_match_movie_to_radarr_ignores_generic_single_word_candidate(self):
         """Single-word candidates should not match unrelated long Plex titles."""
-        self.mock_session.request.return_value = MagicMock(
+        self.mock_session.get.return_value = MagicMock(
             status_code=200,
             text="ok",
             json=lambda: [
