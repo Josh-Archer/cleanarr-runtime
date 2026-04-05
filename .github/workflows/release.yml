@@ -13,6 +13,7 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write
 
 jobs:
   runner:
@@ -28,16 +29,20 @@ jobs:
       RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
       ARCH_REVIEW_TAG: ${{ vars.ARCHITECTURE_REVIEW_TAG }}
       SEC_REVIEW_TAG: ${{ vars.SECURITY_REVIEW_TAG }}
+      AWS_REGION: ${{ vars.AWS_ECR_REGION || 'us-east-1' }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - image_name: cleanarr-cronjob
             dockerfile: apps/job/Dockerfile
+            ecr_repository: ""
           - image_name: cleanarr-webhook-app
             dockerfile: apps/webhook/Dockerfile
+            ecr_repository: cleanarr-webhook
           - image_name: cleanarr-lambda
             dockerfile: apps/lambda/Dockerfile
+            ecr_repository: cleanarr-job
     steps:
       - uses: actions/checkout@v6
         with:
@@ -89,6 +94,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -99,6 +105,118 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Prepare release metadata directory
+        shell: bash
+        run: mkdir -p .release-metadata
+      - name: Configure AWS credentials
+        if: ${{ matrix.ecr_repository != '' }}
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Login to Amazon ECR
+        if: ${{ matrix.ecr_repository != '' }}
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Promote release image to Amazon ECR
+        if: ${{ matrix.ecr_repository != '' }}
+        id: promote
+        shell: bash
+        env:
+          GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/${{ matrix.image_name }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ matrix.ecr_repository }}
+        run: |
+          set -euo pipefail
+
+          aws ecr describe-repositories --repository-names "${ECR_REPOSITORY}" >/dev/null 2>&1 || \
+            aws ecr create-repository --repository-name "${ECR_REPOSITORY}" >/dev/null
+
+          docker pull "${GHCR_IMAGE}:${RELEASE_TAG}"
+
+          GHCR_PLATFORM_DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "${GHCR_IMAGE}:${RELEASE_TAG}" | awk -F'@' '{print $2}')"
+          ECR_IMAGE="${ECR_REGISTRY}/${ECR_REPOSITORY}"
+
+          docker tag "${GHCR_IMAGE}:${RELEASE_TAG}" "${ECR_IMAGE}:${RELEASE_TAG}"
+          docker tag "${GHCR_IMAGE}:${RELEASE_TAG}" "${ECR_IMAGE}:latest"
+          docker push "${ECR_IMAGE}:${RELEASE_TAG}"
+          docker push "${ECR_IMAGE}:latest"
+
+          ECR_DIGEST="$(aws ecr describe-images \
+            --repository-name "${ECR_REPOSITORY}" \
+            --image-ids imageTag="${RELEASE_TAG}" \
+            --query 'imageDetails[0].imageDigest' \
+            --output text)"
+
+          {
+            echo "ghcr_platform_digest=${GHCR_PLATFORM_DIGEST}"
+            echo "ecr_image=${ECR_IMAGE}"
+            echo "ecr_digest=${ECR_DIGEST}"
+          } >> "${GITHUB_OUTPUT}"
+      - name: Write release metadata
+        shell: bash
+        env:
+          GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/${{ matrix.image_name }}
+          ECR_REPOSITORY: ${{ matrix.ecr_repository }}
+          ECR_IMAGE: ${{ steps.promote.outputs.ecr_image }}
+          ECR_DIGEST: ${{ steps.promote.outputs.ecr_digest }}
+          GHCR_PLATFORM_DIGEST: ${{ steps.promote.outputs.ghcr_platform_digest }}
+          GHCR_MULTIARCH_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = {
+              "release_tag": os.environ["RELEASE_TAG"],
+              "image_name": os.environ["GHCR_IMAGE"].rsplit("/", 1)[-1],
+              "ghcr_image": os.environ["GHCR_IMAGE"],
+              "ghcr_multiarch_ref": f'{os.environ["GHCR_IMAGE"]}@{os.environ["GHCR_MULTIARCH_DIGEST"]}',
+              "ghcr_multiarch_digest": os.environ["GHCR_MULTIARCH_DIGEST"],
+              "ghcr_release_tag_ref": f'{os.environ["GHCR_IMAGE"]}:{os.environ["RELEASE_TAG"]}',
+              "ghcr_platform_digest": os.environ.get("GHCR_PLATFORM_DIGEST", ""),
+              "ecr_repository": os.environ.get("ECR_REPOSITORY", ""),
+              "ecr_release_tag_ref": "",
+              "ecr_release_digest": "",
+              "ecr_latest_ref": "",
+          }
+
+          if os.environ.get("ECR_IMAGE"):
+              payload["ecr_release_tag_ref"] = f'{os.environ["ECR_IMAGE"]}:{os.environ["RELEASE_TAG"]}'
+              payload["ecr_release_digest"] = os.environ["ECR_DIGEST"]
+              payload["ecr_latest_ref"] = f'{os.environ["ECR_IMAGE"]}:latest'
+
+          output_path = Path(".release-metadata") / f'{payload["image_name"]}.json'
+          output_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PY
+      - name: Upload release metadata artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-metadata-${{ matrix.image_name }}
+          path: .release-metadata/${{ matrix.image_name }}.json
+      - name: Summarize published image
+        if: always()
+        shell: bash
+        env:
+          GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/${{ matrix.image_name }}
+        run: |
+          {
+            echo "### ${{ matrix.image_name }}"
+            echo "- GHCR release tag: \`${GHCR_IMAGE}:${RELEASE_TAG}\`"
+            echo "- GHCR multi-arch digest: \`${{ steps.build.outputs.digest }}\`"
+            if [ -n "${{ steps.promote.outputs.ghcr_platform_digest }}" ]; then
+              echo "- GHCR lambda-platform digest: \`${{ steps.promote.outputs.ghcr_platform_digest }}\`"
+            fi
+            if [ -n "${{ steps.promote.outputs.ecr_image }}" ]; then
+              echo "- ECR release tag: \`${{ steps.promote.outputs.ecr_image }}:${RELEASE_TAG}\`"
+              echo "- ECR release digest: \`${{ steps.promote.outputs.ecr_digest }}\`"
+              echo "- ECR latest tag: \`${{ steps.promote.outputs.ecr_image }}:latest\`"
+            fi
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Notify ntfy
         if: always()
         env:
@@ -123,3 +241,54 @@ jobs:
           SHA: ${{ github.sha }}
           RUN_NUMBER: ${{ github.run_number }}
         run: bash .github/scripts/write_job_summary.sh
+
+  summarize-release:
+    needs: publish
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Download release metadata artifacts
+        uses: actions/download-artifact@v5
+        with:
+          pattern: release-metadata-*
+          path: release-metadata
+          merge-multiple: true
+      - name: Build combined release metadata
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          metadata_dir = Path("release-metadata")
+          entries = []
+          for path in sorted(metadata_dir.glob("*.json")):
+              entries.append(json.loads(path.read_text(encoding="utf-8")))
+
+          combined_path = metadata_dir / "release-metadata.json"
+          combined_path.write_text(json.dumps(entries, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+          lines = [
+              "## Release Metadata",
+              "",
+              "| Image | GHCR release ref | GHCR digest | ECR release ref | ECR digest |",
+              "| --- | --- | --- | --- | --- |",
+          ]
+          for entry in entries:
+              lines.append(
+                  "| {image} | `{ghcr_ref}` | `{ghcr_digest}` | `{ecr_ref}` | `{ecr_digest}` |".format(
+                      image=entry["image_name"],
+                      ghcr_ref=entry["ghcr_release_tag_ref"],
+                      ghcr_digest=entry["ghcr_multiarch_digest"],
+                      ecr_ref=entry["ecr_release_tag_ref"] or "-",
+                      ecr_digest=entry["ecr_release_digest"] or "-",
+                  )
+              )
+          Path("summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY
+          cat summary.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload combined release metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-metadata
+          path: release-metadata/release-metadata.json

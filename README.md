@@ -104,6 +104,7 @@ Plex watch state / webhook events
 
 - `ghcr.io/<owner>/cleanarr-cronjob`
 - `ghcr.io/<owner>/cleanarr-webhook-app`
+- `ghcr.io/<owner>/cleanarr-lambda`
 
 Release tags follow semver:
 
@@ -112,6 +113,13 @@ Release tags follow semver:
 - `sha-<commit>`
 
 The Python package version in `pyproject.toml` is the release source of truth.
+
+For AWS Lambda consumers, the release workflow also promotes the matching semver release into ECR during the same run:
+
+- `<account>.dkr.ecr.<region>.amazonaws.com/cleanarr-webhook:vMAJOR.MINOR.PATCH`
+- `<account>.dkr.ecr.<region>.amazonaws.com/cleanarr-job:vMAJOR.MINOR.PATCH`
+
+Each release uploads a `release-metadata.json` artifact and writes GHCR/ECR digests into the workflow summary so downstream repos can pin and verify the promoted Lambda images without relying on `latest`.
 
 ## Quick Start
 
