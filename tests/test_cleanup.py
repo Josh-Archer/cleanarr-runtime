@@ -157,6 +157,19 @@ class TestMediaCleanup(unittest.TestCase):
 
         self.assertEqual(result, {})
 
+    def test_unmonitor_sonarr_episode_updates_episode_specific_endpoint(self):
+        """Sonarr unmonitor should target the episode-specific PUT route."""
+        episode_payload = {"id": 16823, "seriesId": 169, "episodeFileId": 6602, "monitored": True}
+
+        with patch.object(self.cleanup, "_sonarr_request", side_effect=[episode_payload.copy(), {}]) as mock_sonarr:
+            self.cleanup.unmonitor_sonarr_episode(16823)
+
+        self.assertEqual(mock_sonarr.call_args_list[0].args[0], "episode/16823")
+        self.assertEqual(mock_sonarr.call_args_list[1].args[0], "episode/16823")
+        self.assertEqual(mock_sonarr.call_args_list[1].kwargs["method"], "PUT")
+        self.assertFalse(mock_sonarr.call_args_list[1].kwargs["data"]["monitored"])
+        self.assertEqual(mock_sonarr.call_args_list[1].kwargs["data"]["id"], 16823)
+
     def test_match_episode_to_sonarr(self):
         """Test matching Plex episode to Sonarr episode."""
         # Mock Sonarr series list

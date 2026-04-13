@@ -933,7 +933,7 @@ class MediaCleanup:
         episode = self._sonarr_request(f"episode/{episode_id}")
         if episode:
             episode["monitored"] = False
-            result = self._sonarr_request("episode", method="PUT", data=episode)
+            result = self._sonarr_request(f"episode/{episode_id}", method="PUT", data=episode)
             if result is not None:
                 logger.info(f"Unmonitored episode {episode_id}")
             else:
