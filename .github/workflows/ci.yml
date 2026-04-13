@@ -49,7 +49,7 @@ jobs:
 
   docker-build:
     needs: runner
-    runs-on: ${{ needs.runner.outputs.runner-label }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
