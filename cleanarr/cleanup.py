@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Core Cleanarr cleanup logic shared by the job and webhook harnesses."""
 
 import os
@@ -98,6 +98,14 @@ CONFIG = {
     "remove_stale_torrents": _env_flag("CLEANARR_REMOVE_STALE_TORRENTS", default="true"),
     "torrent_cleanup_allowed_categories": _env_csv_set(
         "CLEANARR_TORRENT_CLEANUP_ALLOWED_CATEGORIES",
+        default="",
+    ),
+    # When non-empty, ONLY torrents whose Transmission label list contains at least
+    # one of these values will be considered for cleanup.  Torrents with no label
+    # or an unrecognised label (e.g. adult content) are left untouched.
+    # Example: "sonarr,radarr,readarr,lidarr"
+    "torrent_cleanup_required_labels": _env_csv_set(
+        "CLEANARR_TORRENT_CLEANUP_REQUIRED_LABELS",
         default="",
     ),
     "transmission_io_error_cleanup_enabled": _env_flag(
@@ -321,6 +329,29 @@ class MediaCleanup:
         )
 
     def _torrent_cleanup_allowed(self, torrent, reason):
+        torrent_name = getattr(torrent, "name", "unknown torrent")
+
+        # --- Label filter (Transmission labels / tags) ---
+        # When CLEANARR_TORRENT_CLEANUP_REQUIRED_LABELS is configured, only torrents
+        # that carry at least one of the listed labels will be cleaned up.  This is
+        # the safest way to restrict cleanup to *arr-managed torrents while leaving
+        # untagged content (adult material, ebooks, etc.) untouched.
+        required_labels = CONFIG.get("torrent_cleanup_required_labels") or set()
+        if required_labels:
+            torrent_labels = {
+                lbl.strip().lower()
+                for lbl in (getattr(torrent, "labels", None) or [])
+                if lbl and lbl.strip()
+            }
+            if not torrent_labels.intersection(required_labels):
+                logger.info(
+                    f"Skipping torrent cleanup for {torrent_name} "
+                    f"during {reason}: labels {torrent_labels or set()} do not "
+                    f"match required {sorted(required_labels)}"
+                )
+                return False
+
+        # --- Category (download-directory) filter ---
         allowed_categories = CONFIG.get("torrent_cleanup_allowed_categories") or set()
         if not allowed_categories:
             return True
@@ -330,7 +361,7 @@ class MediaCleanup:
             return True
 
         logger.info(
-            f"Skipping torrent cleanup for {getattr(torrent, 'name', 'unknown torrent')} "
+            f"Skipping torrent cleanup for {torrent_name} "
             f"during {reason}: category '{category or 'unknown'}' is not in "
             f"{sorted(allowed_categories)}"
         )

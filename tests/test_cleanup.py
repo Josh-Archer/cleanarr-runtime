@@ -464,6 +464,97 @@ class TestMediaCleanup(unittest.TestCase):
 
         self.cleanup.transmission.remove_torrent.assert_not_called()
 
+    # ------------------------------------------------------------------
+    # Label-filter tests (CLEANARR_TORRENT_CLEANUP_REQUIRED_LABELS)
+    # ------------------------------------------------------------------
+
+    def _make_torrent(self, *, torrent_id, name, download_dir, labels=None,
+                      error=0, error_string="", added_hours_ago=24,
+                      percent_done=1.0, rate_download=0, status=0,
+                      peers_connected=0):
+        t = MagicMock()
+        t.id = torrent_id
+        t.name = name
+        t.download_dir = download_dir
+        t.labels = labels or []
+        t.error = error
+        t.error_string = error_string
+        t.added_date = datetime.now(timezone.utc) - timedelta(hours=added_hours_ago)
+        t.percent_done = percent_done
+        t.rate_download = rate_download
+        t.status = status
+        t.peers_connected = peers_connected
+        return t
+
+    def test_torrent_cleanup_allowed_skips_unlabelled_when_labels_required(self):
+        """Unlabelled torrents must be skipped when a required-labels set is configured."""
+        cleanarr.CONFIG["torrent_cleanup_required_labels"] = {"sonarr", "radarr"}
+        torrent = self._make_torrent(torrent_id=300, name="Adult Content.mp4",
+                                     download_dir="/media/downloads", labels=[])
+        self.assertFalse(self.cleanup._torrent_cleanup_allowed(torrent, "test"))
+
+    def test_torrent_cleanup_allowed_passes_matching_label(self):
+        """Torrents carrying a recognised label should be cleared for cleanup."""
+        cleanarr.CONFIG["torrent_cleanup_required_labels"] = {"sonarr", "radarr"}
+        torrent = self._make_torrent(torrent_id=301, name="Fargo S02E03.mkv",
+                                     download_dir="/media/downloads/sonarr",
+                                     labels=["sonarr"])
+        self.assertTrue(self.cleanup._torrent_cleanup_allowed(torrent, "test"))
+
+    def test_torrent_cleanup_allowed_passes_when_no_labels_required(self):
+        """Without a required-labels filter every torrent is allowed (existing behaviour)."""
+        cleanarr.CONFIG["torrent_cleanup_required_labels"] = set()
+        cleanarr.CONFIG["torrent_cleanup_allowed_categories"] = set()
+        torrent = self._make_torrent(torrent_id=302, name="Unlabelled.mp4",
+                                     download_dir="/media/downloads", labels=[])
+        self.assertTrue(self.cleanup._torrent_cleanup_allowed(torrent, "test"))
+
+    def test_remove_stale_torrents_skips_unlabelled_when_labels_required(self):
+        """Stale torrent cleanup must not remove torrents that lack the required label."""
+        cleanarr.CONFIG["torrent_cleanup_required_labels"] = {"sonarr", "radarr"}
+        cleanarr.CONFIG["torrent_cleanup_allowed_categories"] = set()
+
+        mock_torrent = self._make_torrent(
+            torrent_id=303, name="Adult Stale.mp4",
+            download_dir="/media/downloads", labels=[],
+            added_hours_ago=48, percent_done=1.0, rate_download=0,
+            status=0, peers_connected=0,
+        )
+        self.cleanup.transmission.get_torrents.return_value = [mock_torrent]
+        self.cleanup.remove_stale_torrents()
+        self.cleanup.transmission.remove_torrent.assert_not_called()
+
+    def test_clean_failed_downloads_skips_unlabelled_when_labels_required(self):
+        """Failed-download cleanup must skip torrents that lack the required label."""
+        cleanarr.CONFIG["torrent_cleanup_required_labels"] = {"sonarr"}
+        cleanarr.CONFIG["torrent_cleanup_allowed_categories"] = set()
+
+        mock_torrent = self._make_torrent(
+            torrent_id=304, name="Adult Broken.mp4",
+            download_dir="/media/downloads", labels=[],
+            error=1, error_string="broken",
+        )
+        self.cleanup.transmission.get_torrents.return_value = [mock_torrent]
+        self.cleanup.clean_failed_downloads()
+        self.cleanup.transmission.remove_torrent.assert_not_called()
+
+    def test_remove_torrent_by_file_path_skips_unlabelled_when_labels_required(self):
+        """File-path torrent removal must skip torrents that lack the required label."""
+        cleanarr.CONFIG["torrent_cleanup_required_labels"] = {"sonarr"}
+        cleanarr.CONFIG["torrent_cleanup_allowed_categories"] = set()
+
+        mock_torrent = self._make_torrent(
+            torrent_id=305, name="Adult.mp4",
+            download_dir="/media/downloads", labels=[],
+            rate_download=0, status=6,
+        )
+        mock_torrent.files.return_value = [{"name": "Adult.mp4"}]
+        self.cleanup.transmission.get_torrents.return_value = [mock_torrent]
+
+        result = self.cleanup.remove_torrent_by_file_path("/media/downloads/Adult.mp4")
+        self.assertFalse(result)
+        self.cleanup.transmission.remove_torrent.assert_not_called()
+
     def test_process_watched_episodes_does_not_delete_unwatched_episodes_just_because_later_episodes_exist(self):
         watched_episode = {
             "show_title": "The Beast in Me",
