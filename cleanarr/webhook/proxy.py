@@ -43,6 +43,27 @@ def _queue_url() -> str:
     return os.environ.get("CLEANARR_WEBHOOK_QUEUE_URL", "").strip()
 
 
+def _queue_region() -> str:
+    return (os.environ.get("CLEANARR_WEBHOOK_QUEUE_REGION") or AWS_REGION).strip() or AWS_REGION
+
+
+def _forward_url() -> str:
+    return os.environ.get("CLEANARR_WEBHOOK_FORWARD_URL", "").strip().rstrip("/")
+
+
+def _ignored_libraries() -> set[str]:
+    raw = os.environ.get("CLEANARR_WEBHOOK_IGNORED_LIBRARIES", "")
+    return {item.strip().casefold() for item in raw.split(",") if item.strip()}
+
+
+def _proxy_sink_mode() -> str:
+    if _queue_url():
+        return "sqs"
+    if _forward_url():
+        return "lambda"
+    return "none"
+
+
 def _resolve_user_key(platform: str, identifier: str) -> str:
     """Resolve a platform-specific user identifier to a canonical Cleanarr user key."""
     if not identifier:
