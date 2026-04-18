@@ -36,39 +36,57 @@ _CREDENTIAL_CACHE = {
 _CREDENTIAL_LOCK = threading.Lock()
 
 
+JELLYFIN_WEBHOOK_SECRET = os.environ.get("JELLYFIN_WEBHOOK_SECRET", "")
+
+
 def _queue_url() -> str:
     return os.environ.get("CLEANARR_WEBHOOK_QUEUE_URL", "").strip()
 
 
-def _queue_region() -> str:
-    return (os.environ.get("CLEANARR_WEBHOOK_QUEUE_REGION") or AWS_REGION).strip() or AWS_REGION
+def _resolve_user_key(platform: str, identifier: str) -> str:
+    """Resolve a platform-specific user identifier to a canonical Cleanarr user key."""
+    if not identifier:
+        return ""
+    
+    aliases_raw = os.environ.get("CLEANARR_USER_ALIASES_JSON", "")
+    if not aliases_raw:
+        return identifier.strip().lower()
+        
+    try:
+        aliases = json.loads(aliases_raw)
+        if not isinstance(aliases, dict):
+            return identifier.strip().lower()
+            
+        # aliases: { "canonical_user": { "plex": "plex_user", "jellyfin": "jf_user" } }
+        search_val = identifier.strip().lower()
+        for canonical_key, platforms in aliases.items():
+            if isinstance(platforms, dict):
+                platform_val = str(platforms.get(platform) or "").strip().lower()
+                if platform_val == search_val:
+                    return canonical_key.lower()
+            elif str(platforms).strip().lower() == search_val: # legacy fallback
+                return canonical_key.lower()
+                
+    except Exception:
+        pass
+        
+    return identifier.strip().lower()
 
 
-def _forward_url() -> str:
-    return os.environ.get("CLEANARR_WEBHOOK_FORWARD_URL", "").strip().rstrip("/")
-
-
-def _ignored_libraries() -> set[str]:
-    raw = os.environ.get("CLEANARR_WEBHOOK_IGNORED_LIBRARIES", "")
-    return {item.strip().casefold() for item in raw.split(",") if item.strip()}
-
-
-def _proxy_sink_mode() -> str:
-    if _queue_url():
-        return "sqs"
-    if _forward_url():
-        return "lambda"
-    return "none"
-
-
-def _compute_event_flags(event_name: str, action_name: str) -> dict:
+def _compute_event_flags(event_name: str, action_name: str, platform: str = "plex") -> dict:
     evt = (event_name or "").lower()
     act = (action_name or "").lower()
 
-    is_finished = evt == "media.scrobble" or act == "mark_watched"
-    is_removed = evt == "library.remove"
-    is_paused = evt == "media.pause"
-    is_stopped = evt == "media.stop"
+    if platform == "jellyfin":
+        is_finished = evt == "itemmarkplayed" or evt == "playbackstopped"
+        is_removed = False # Jellyfin doesn't typically send library.remove via standard webhooks
+        is_paused = evt == "playbackpaused"
+        is_stopped = evt == "playbackstopped"
+    else:
+        is_finished = evt == "media.scrobble" or act == "mark_watched"
+        is_removed = evt == "library.remove"
+        is_paused = evt == "media.pause"
+        is_stopped = evt == "media.stop"
 
     return {
         "finished": is_finished,
@@ -270,6 +288,68 @@ def sign_headers(url: str, body: bytes, content_type: str, token: str = "") -> d
     return headers
 
 
+def _parse_jellyfin_webhook_event(body: bytes, remote_addr: str, method: str) -> dict:
+    payload = None
+    try:
+        payload = json.loads(body.decode("utf-8")) if body else None
+    except Exception:
+        LOG.exception("Failed to parse Jellyfin webhook JSON")
+
+    if not isinstance(payload, dict):
+        return {
+            "received_at": datetime.datetime.utcnow().isoformat() + "Z",
+            "remote_addr": remote_addr,
+            "method": method,
+            "platform": "jellyfin",
+            "error": "invalid_payload"
+        }
+
+    event_name = payload.get("NotificationType") or ""
+    
+    # Extract user
+    user_name = payload.get("NotificationUsername") or payload.get("UserId") or ""
+    canonical_user = _resolve_user_key("jellyfin", user_name)
+    
+    # Extract metadata
+    title = payload.get("ItemName") or payload.get("Name")
+    mtype = (payload.get("ItemType") or "").lower()
+    
+    # Extract external IDs if available (TMDB/IMDB)
+    provider_ids = payload.get("ProviderIds") or {}
+    guid = None
+    if provider_ids.get("Imdb"):
+        guid = f"imdb://{provider_ids['Imdb']}"
+    elif provider_ids.get("Tmdb"):
+        guid = f"tmdb://{provider_ids['Tmdb']}"
+
+    return {
+        "received_at": datetime.datetime.utcnow().isoformat() + "Z",
+        "remote_addr": remote_addr,
+        "method": method,
+        "platform": "jellyfin",
+        "event": event_name,
+        "action": "",
+        **_compute_event_flags(event_name, "", platform="jellyfin"),
+        "payload": payload,
+        "account": {
+            "id": payload.get("UserId"),
+            "title": canonical_user,
+        },
+        "metadata": {
+            "guid": guid,
+            "ratingKey": None,
+            "title": title,
+            "type": "episode" if mtype in ("episode", "series") else "movie" if mtype == "movie" else mtype,
+            "librarySectionTitle": None,
+            "sectionTitle": None,
+            "parentTitle": payload.get("SeriesName"),
+            "index": payload.get("IndexNumber"),
+            "parentIndex": payload.get("ParentIndexNumber"),
+            "grandparentTitle": None,
+        }
+    }
+
+
 def _parse_webhook_event(body: bytes, content_type: str, query_string: str, remote_addr: str, method: str) -> dict:
     payload = None
     event_name = None
@@ -315,17 +395,22 @@ def _parse_webhook_event(body: bytes, content_type: str, query_string: str, remo
     if not meta and isinstance(payload, dict) and payload.get("rating_key"):
         meta = {"ratingKey": payload.get("rating_key")}
 
+    # Resolve Plex user
+    raw_user = account.get("title") if isinstance(account, dict) else None
+    canonical_user = _resolve_user_key("plex", raw_user)
+
     return {
         "received_at": datetime.datetime.utcnow().isoformat() + "Z",
         "remote_addr": remote_addr,
         "method": method,
+        "platform": "plex",
         "event": event_name,
         "action": action_name,
-        **_compute_event_flags(event_name, action_name),
+        **_compute_event_flags(event_name, action_name, platform="plex"),
         "payload": payload,
         "account": {
             "id": account.get("id") if isinstance(account, dict) else None,
-            "title": account.get("title") if isinstance(account, dict) else None,
+            "title": canonical_user,
         }
         if account
         else None,
@@ -446,7 +531,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed_url = urlsplit(self.path)
-        if parsed_url.path != "/plex/webhook":
+        is_plex = parsed_url.path == "/plex/webhook"
+        is_jellyfin = parsed_url.path == "/jellyfin/webhook"
+        
+        if not is_plex and not is_jellyfin:
             self.send_response(404)
             self.end_headers()
             return
@@ -462,18 +550,25 @@ class ProxyHandler(BaseHTTPRequestHandler):
             self.headers.get("X-Cleanarr-Webhook-Token")
             or self.headers.get("X-Webhook-Token")
             or dict(parse_qsl(parsed_url.query)).get("token")
-            or WEBHOOK_SECRET
+            or (WEBHOOK_SECRET if is_plex else JELLYFIN_WEBHOOK_SECRET)
         )
 
         if _queue_url():
             try:
-                webhook_event = _parse_webhook_event(
-                    body,
-                    content_type,
-                    parsed_url.query,
-                    self.client_address[0] if self.client_address else "",
-                    self.command,
-                )
+                if is_plex:
+                    webhook_event = _parse_webhook_event(
+                        body,
+                        content_type,
+                        parsed_url.query,
+                        self.client_address[0] if self.client_address else "",
+                        self.command,
+                    )
+                else:
+                    webhook_event = _parse_jellyfin_webhook_event(
+                        body,
+                        self.client_address[0] if self.client_address else "",
+                        self.command,
+                    )
             except Exception:
                 LOG.exception("Failed to normalize webhook event for SQS sink")
                 webhook_event = None

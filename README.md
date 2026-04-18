@@ -20,7 +20,7 @@ At a high level it can:
 - perform watched-ahead logic for TV episodes using real user history
 - remove items from a Plex watchlist after cleanup
 - perform optional Transmission maintenance for stale torrents, failed downloads, and repeated I/O errors
-- receive Plex webhook events and optionally act on them in near real time
+- receive Plex and Jellyfin webhook events and optionally act on them in near real time
 - send run summaries and health notifications to `ntfy`
 
 ## Runtime Modes

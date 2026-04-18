@@ -824,6 +824,96 @@ def healthz():
     http_status = 200 if status["ok"] or not status["initialized"] else 500
     return jsonify(status), http_status
 
+@APP.route("/jellyfin/webhook", methods=["POST"])
+def jellyfin_webhook():
+    # Verify authentication token if configured
+    if JELLYFIN_WEBHOOK_SECRET:
+        token_val = request.headers.get('X-Cleanarr-Webhook-Token') or request.headers.get('X-Webhook-Token') or request.args.get('token')
+        if token_val != JELLYFIN_WEBHOOK_SECRET:
+            logger.warning(f"Unauthorized Jellyfin webhook attempt from {request.remote_addr}")
+            return jsonify({"status": "error", "message": "Unauthorized"}), 401
+
+    logger.info(
+        "Received Jellyfin request: %s %s from %s content_type=%s",
+        request.method,
+        request.path,
+        request.remote_addr,
+        request.content_type,
+    )
+    
+    _start_background_threads()
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"status": "error", "message": "Invalid JSON"}), 400
+
+    event_name = payload.get("NotificationType") or ""
+    user_name = payload.get("NotificationUsername") or payload.get("UserId") or ""
+    
+    # Resolve canonical user
+    canonical_user = user_name
+    aliases_raw = os.environ.get("CLEANARR_USER_ALIASES_JSON", "")
+    if aliases_raw:
+        try:
+            aliases = json.loads(aliases_raw)
+            search_val = str(user_name).strip().lower()
+            for ck, platforms in aliases.items():
+                if isinstance(platforms, dict) and str(platforms.get("jellyfin") or "").strip().lower() == search_val:
+                    canonical_user = ck
+                    break
+        except Exception:
+            pass
+
+    # Map to internal format
+    mtype = (payload.get("ItemType") or "").lower()
+    provider_ids = payload.get("ProviderIds") or {}
+    guid = None
+    if provider_ids.get("Imdb"):
+        guid = f"imdb://{provider_ids['Imdb']}"
+    elif provider_ids.get("Tmdb"):
+        guid = f"tmdb://{provider_ids['Tmdb']}"
+
+    ev = {
+        "received_at": datetime.datetime.utcnow().isoformat() + "Z",
+        "remote_addr": request.remote_addr,
+        "method": request.method,
+        "platform": "jellyfin",
+        "event": event_name,
+        "payload": payload,
+        "account": {
+            "id": payload.get("UserId"),
+            "title": canonical_user,
+        },
+        "metadata": {
+            "guid": guid,
+            "title": payload.get("ItemName") or payload.get("Name"),
+            "type": "episode" if mtype in ("episode", "series") else "movie" if mtype == "movie" else mtype,
+            "index": payload.get("IndexNumber"),
+            "parentIndex": payload.get("ParentIndexNumber"),
+            "parentTitle": payload.get("SeriesName"),
+        }
+    }
+
+    # Compute flags for Jellyfin
+    is_finished = event_name.lower() in ("itemmarkplayed", "playbackstopped")
+    is_paused = event_name.lower() == "playbackpaused"
+    is_stopped = event_name.lower() == "playbackstopped"
+    
+    ev["finished"] = is_finished
+    ev["removed"] = False
+    ev["paused"] = is_paused
+    ev["stopped"] = is_stopped
+    
+    actionable = is_finished or is_paused or is_stopped
+    recorded = is_finished
+
+    if actionable and _queue_enqueuing_enabled():
+        if _enqueue_webhook_event(ev):
+            return jsonify({"status": "ok", "queued": True})
+
+    _process_webhook_event_actions(ev, async_mode=True, force_deletions=False)
+    return jsonify({"status": "ok", "recorded": recorded})
+
+
 @APP.route("/plex/webhook", methods=["GET", "POST"])
 def plex_webhook():
     # Verify authentication token if configured
@@ -1119,28 +1209,46 @@ def count_views_by_guid(guid: str):
     return counts
 
 
-def _normalize_watched_by(watched_by):
+def _normalize_watched_by(watched_by, platform="plex"):
     """Normalize watched_by dict using optional env-provided aliases."""
     if not watched_by:
         return watched_by
 
-    aliases = {}
     aliases_raw = os.environ.get("CLEANARR_USER_ALIASES_JSON") or os.environ.get("PLEX_USER_ALIASES_JSON", "")
-    if aliases_raw:
-        try:
-            parsed = json.loads(aliases_raw)
-            if isinstance(parsed, dict):
-                aliases = {str(key): str(value) for key, value in parsed.items() if key and value}
-        except Exception:
-            logger.warning("Failed to parse PLEX_USER_ALIASES_JSON; expected object JSON")
+    if not aliases_raw:
+        return watched_by
+
+    try:
+        aliases = json.loads(aliases_raw)
+        if not isinstance(aliases, dict):
+            return watched_by
+    except Exception:
+        logger.warning("Failed to parse CLEANARR_USER_ALIASES_JSON; expected object JSON")
+        return watched_by
 
     normalized = {}
     for user, watched in watched_by.items():
-        normalized_user = aliases.get(user, user)
-        if normalized_user in normalized:
-            normalized[normalized_user] = normalized[normalized_user] or watched
+        canonical_user = user
+        search_val = str(user).strip().lower()
+        
+        # Try to find canonical user from platform-specific mapping
+        found = False
+        for canonical_key, platforms in aliases.items():
+            if isinstance(platforms, dict):
+                platform_val = str(platforms.get(platform) or "").strip().lower()
+                if platform_val == search_val:
+                    canonical_user = canonical_key
+                    found = True
+                    break
+            elif str(platforms).strip().lower() == search_val: # legacy fallback
+                canonical_user = canonical_key
+                found = True
+                break
+        
+        if canonical_user in normalized:
+            normalized[canonical_user] = normalized[canonical_user] or watched
         else:
-            normalized[normalized_user] = watched
+            normalized[canonical_user] = watched
 
     return normalized
 
