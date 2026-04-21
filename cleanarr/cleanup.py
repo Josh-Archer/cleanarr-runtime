@@ -193,7 +193,13 @@ def _get_torrent_category(torrent):
 # Setup logger
 logger.remove()
 logger.add(sys.stderr, level="DEBUG" if CONFIG["debug"] else "INFO")
-logger.add(CONFIG["log_file"], rotation="10 MB", retention="1 week", level="INFO")
+
+# Optional file logging
+if os.environ.get("CLEANARR_LOG_TO_FILE", "true").lower() in ("true", "1", "yes"):
+    try:
+        logger.add(CONFIG["log_file"], rotation="10 MB", retention="1 week", level="INFO")
+    except Exception:
+        logger.warning(f"Failed to initialize file logging at {CONFIG['log_file']}: permission denied or invalid path")
 
 
 class MediaCleanup:
