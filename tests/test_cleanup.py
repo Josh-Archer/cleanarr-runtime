@@ -388,8 +388,11 @@ class TestMediaCleanup(unittest.TestCase):
 
         with patch.object(self.cleanup, 'get_watched_movies', return_value=[movie]), \
              patch.object(self.cleanup, 'get_radarr_tags', return_value=[]), \
-             patch.object(self.cleanup, 'get_radarr_movies', return_value=[{'path': '/radarr/movies'}]), \
-             patch.object(self.cleanup, 'match_movie_to_radarr', return_value=None), \
+             patch.object(
+                 self.cleanup,
+                 'get_radarr_movies',
+                 return_value=[{'title': 'Managed Movie', 'year': 2025, 'path': '/radarr/movies/Managed Movie'}],
+             ), \
              patch.object(cleanarr.logger, 'warning') as mock_warning, \
              patch.object(cleanarr.logger, 'info') as mock_info:
             self.cleanup.process_watched_movies()

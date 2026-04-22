@@ -612,6 +612,11 @@ class MediaCleanup:
             for section in movie_sections:
                 for movie in section.search(unwatched=False):
                     watched_by = self._get_watch_status(movie)
+                    guid_values = []
+                    for guid in getattr(movie, "guids", None) or []:
+                        value = getattr(guid, "id", guid)
+                        if value:
+                            guid_values.append(str(value))
                     watched_movies.append({
                         "title": movie.title,
                         "year": movie.year,
@@ -619,6 +624,7 @@ class MediaCleanup:
                         "watched_by": watched_by,
                         "watch_evidence": self.watch_evidence_by_rating_key.get(movie.ratingKey, {}).copy(),
                         "guid": movie.guid,
+                        "guids": guid_values,
                         "rating_key": movie.ratingKey,
                     })
             logger.info(f"Found {len(watched_movies)} watched movies")
@@ -830,12 +836,16 @@ class MediaCleanup:
             return set()
         ids = set()
 
-        guid = movie.get("guid") or ""
-        for match in re.finditer(r"([a-z0-9]+)://([^/?]+)", str(guid), re.IGNORECASE):
-            source = match.group(1).lower()
-            value = match.group(2).strip()
-            if value:
-                ids.add(f"{source}:{value}")
+        def add_guid_values(raw_value):
+            for match in re.finditer(r"([a-z0-9]+)://([^/?]+)", str(raw_value or ""), re.IGNORECASE):
+                source = match.group(1).lower()
+                value = match.group(2).strip().lower()
+                if value:
+                    ids.add(f"{source}:{value}")
+
+        add_guid_values(movie.get("guid"))
+        for guid in movie.get("guids") or []:
+            add_guid_values(guid)
 
         for key in ("imdbId", "tmdbId", "tvdbId", "tvmazeId"):
             value = movie.get(key)
@@ -853,12 +863,14 @@ class MediaCleanup:
         movies = self.get_radarr_movies()
         roots = []
         for movie in movies if isinstance(movies, list) else []:
-            path = movie.get("path") if isinstance(movie, dict) else None
-            if not path:
+            if not isinstance(movie, dict):
                 continue
-            root = os.path.normpath(str(path))
-            if root and root not in roots:
-                roots.append(root)
+            for raw_path in (movie.get("path"), movie.get("rootFolderPath")):
+                if not raw_path:
+                    continue
+                root = os.path.normpath(str(raw_path))
+                if root and root not in roots:
+                    roots.append(root)
 
         self._arr_cache["radarr_managed_movie_roots"] = roots
         return roots
@@ -928,7 +940,7 @@ class MediaCleanup:
             "file_id": sonarr_episode.get("episodeFileId")
         }
 
-    def match_movie_to_radarr(self, movie):
+    def match_movie_to_radarr(self, movie, *, log_unmatched=True):
         """Match a Plex movie to Radarr with fuzzy matching."""
         logger.info(f"Matching movie to Radarr: {movie['title']} ({movie['year']})")
         movie_list = self.get_radarr_movies()
@@ -1007,7 +1019,8 @@ class MediaCleanup:
                 f"Plex='{movie['title']}' ({movie['year']})"
             )
 
-        logger.warning(f"Movie not found in Radarr: {movie['title']} ({movie['year']})")
+        if log_unmatched:
+            logger.warning(f"Movie not found in Radarr: {movie['title']} ({movie['year']})")
         return None
 
     def get_user_tags(self, tags, tag_ids):
@@ -1606,7 +1619,7 @@ class MediaCleanup:
             if not movie["file"]:
                 logger.warning(f"No file path for movie: {movie['title']} ({movie['year']})")
                 continue
-            radarr_match = self.match_movie_to_radarr(movie)
+            radarr_match = self.match_movie_to_radarr(movie, log_unmatched=False)
             if not radarr_match:
                 if radarr_managed_roots and not self._is_movie_file_in_radarr_path(movie["file"]):
                     logger.info(
