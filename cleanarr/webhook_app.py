@@ -865,12 +865,12 @@ def jellyfin_webhook():
 
     # Map to internal format
     mtype = (payload.get("ItemType") or "").lower()
-    provider_ids = payload.get("ProviderIds") or {}
+    provider_ids = {str(k).lower(): v for k, v in (payload.get("ProviderIds") or {}).items() if v}
     guid = None
-    if provider_ids.get("Imdb"):
-        guid = f"imdb://{provider_ids['Imdb']}"
-    elif provider_ids.get("Tmdb"):
-        guid = f"tmdb://{provider_ids['Tmdb']}"
+    if provider_ids.get("imdb"):
+        guid = f"imdb://{provider_ids['imdb']}"
+    elif provider_ids.get("tmdb"):
+        guid = f"tmdb://{provider_ids['tmdb']}"
 
     ev = {
         "received_at": datetime.datetime.utcnow().isoformat() + "Z",
