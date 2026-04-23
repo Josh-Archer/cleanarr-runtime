@@ -4,10 +4,10 @@ import datetime
 import threading
 import logging
 import time
-            import re
-            import html
+import re
+import html
 import sys
-from urllib.parse import urlparse
+import requests
 from flask import Flask, request, jsonify
 
 APP = Flask(__name__)
@@ -754,8 +754,6 @@ def _get_target_plex(token: str):
             return _TARGET_PLEX_BY_TOKEN[token]
         try:
             from plexapi.server import PlexServer
-            import re
-            import html
             session = requests.Session()
             session.verify = False
             client = PlexServer(TARGET_PLEX_BASEURL, token, session=session)
@@ -1701,6 +1699,5 @@ if __name__ == '__main__':
 
 
 app = APP
-
 
 
