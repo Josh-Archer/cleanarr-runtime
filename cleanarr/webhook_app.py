@@ -21,7 +21,6 @@ LOKI_URL = os.environ.get('LOKI_URL')
 if LOKI_URL:
     try:
         import logging
-from loguru import logger_loki
 
         cf_id = os.environ.get("CF_ACCESS_CLIENT_ID")
         cf_secret = os.environ.get("CF_ACCESS_CLIENT_SECRET")
