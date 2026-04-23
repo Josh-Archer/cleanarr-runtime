@@ -976,24 +976,38 @@ class MediaCleanup:
             }
 
         # Try exact match first (with year)
-        for m in movie_list:
-            if m["title"].lower() == movie["title"].lower() and self._years_match(m["year"], movie["year"]):
+        exact_title_matches = [m for m in movie_list if m["title"].lower() == movie["title"].lower()]
+        if len(exact_title_matches) == 1 and movie.get("year") is None:
+            logger.info(f"Matched by title only (unique match): Radarr='{exact_title_matches[0]['title']}' for Plex='{movie['title']}'")
+            return {
+                "movie": exact_title_matches[0],
+                "file_id": exact_title_matches[0].get("movieFile", {}).get("id")
+            }
+
+        for m in exact_title_matches:
+            if self._years_match(m.get("year"), movie.get("year")):
                 return {
                     "movie": m,
                     "file_id": m.get("movieFile", {}).get("id")
                 }
 
-        # Fallback: try normalized matching (with year)
+        # Fallback: try normalized matching
         target_norm = normalize(movie["title"])
-        for m in movie_list:
-            if self._years_match(m["year"], movie["year"]):
-                # Exact normalized match
-                if normalize(m["title"]) == target_norm:
-                    logger.info(f"Matched by normalized title: Radarr='{m['title']}' for Plex='{movie['title']}'")
-                    return {
-                        "movie": m,
-                        "file_id": m.get("movieFile", {}).get("id")
-                    }
+        norm_title_matches = [m for m in movie_list if normalize(m.get("title")) == target_norm]
+        if len(norm_title_matches) == 1 and movie.get("year") is None:
+            logger.info(f"Matched by normalized title only (unique match): Radarr='{norm_title_matches[0]['title']}' for Plex='{movie['title']}'")
+            return {
+                "movie": norm_title_matches[0],
+                "file_id": norm_title_matches[0].get("movieFile", {}).get("id")
+            }
+            
+        for m in norm_title_matches:
+            if self._years_match(m.get("year"), movie.get("year")):
+                logger.info(f"Matched by normalized title: Radarr='{m['title']}' for Plex='{movie['title']}'")
+                return {
+                    "movie": m,
+                    "file_id": m.get("movieFile", {}).get("id")
+                }
 
         # Final fallback: containment matching (with year)
         target_tokens = tokenize(movie["title"])
