@@ -805,8 +805,12 @@ class MediaCleanup:
         episodes = self.get_sonarr_episodes_for_series(series_id)
         if episodes:
             for episode in episodes:
-                if episode["seasonNumber"] == season_number and episode["episodeNumber"] == episode_number:
-                    return episode
+                try:
+                    if int(episode["seasonNumber"]) == int(season_number) and int(episode["episodeNumber"]) == int(episode_number):
+                        return episode
+                except (ValueError, TypeError):
+                    if episode["seasonNumber"] == season_number and episode["episodeNumber"] == episode_number:
+                        return episode
         return None
 
     def _extract_radarr_movie_external_ids(self, movie):
