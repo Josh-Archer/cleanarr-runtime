@@ -893,8 +893,8 @@ def jellyfin_webhook():
             "guid": guid,
             "title": payload.get("ItemName") or payload.get("Name"),
             "type": "episode" if mtype in ("episode", "series") else "movie" if mtype == "movie" else mtype,
-            "index": payload.get("IndexNumber"),
-            "parentIndex": payload.get("ParentIndexNumber"),
+            "index": payload.get("IndexNumber") or payload.get("EpisodeNumber"),
+            "parentIndex": payload.get("ParentIndexNumber") or payload.get("SeasonNumber"),
             "parentTitle": payload.get("SeriesName"),
         }
     }
